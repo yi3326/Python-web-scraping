@@ -1,9 +1,8 @@
-#!usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-__date__='2017.04.06'
-__author__='WYY'
+__date__ = '2017.04.06'
+__author__ = 'WYY'
 
-#实战小项目：爬取豆瓣有关张国荣的日记（并作数据分析)
 import requests
 import json
 import re
@@ -11,122 +10,183 @@ from bs4 import BeautifulSoup
 import itertools
 import time
 import xlwt
-import sys
-reload(sys)
-sys.setdefaultencoding('utf-8')
+import os
+
 
 class Tool():
-    def replace(self,x):
-        x=re.sub(re.compile('<br>|</br>|&nbsp;|<p>|</p>|<td>|</td>|<tr>|</tr>|</a>|<table>|</table>'), "", x)
-        x=re.sub(re.compile('<div.*?>|<img.*?>|<a.*?>|<td.*?>'), "", x)
+    def replace(self, x):
+        x = re.sub(re.compile('<br>|</br>|&nbsp;|<p>|</p>|<td>|</td>|<tr>|</tr>|</a>|<table>|</table>'), "", x)
+        x = re.sub(re.compile('<div.*?>|<img.*?>|<a.*?>|<td.*?>'), "", x)
         return x.strip()
+
 
 class Spider():
     def __init__(self):
-        self.tool=Tool()
+        self.tool = Tool()
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
 
-    def get_source(self,url):
-        cookies='bid=6xgbcS6Pqds; ll="118318"; viewed="3112503"; gr_user_id=660f3409-0b65-4195-9d2f-a3c71573b40f; ct=y; ps=y; _ga=GA1.2.325764598.1467804810; _vwo_uuid_v2=112D0E7472DB37089F4E96B7F4E5913D|faf50f21ff006f877c92e097c4f2819c; ap=1; push_noty_num=0; push_doumail_num=0; _pk_ref.100001.8cb4=%5B%22%22%2C%22%22%2C1491576344%2C%22http%3A%2F%2Fwww.so.com%2Flink%3Furl%3Dhttp%253A%252F%252Fwww.douban.com%252F%26q%3D%25E8%25B1%2586%25E7%2593%25A3%26ts%3D1491459621%26t%3Df67ffeb4cd66c531150a172c69796e0%26src%3Dhaosou%22%5D; __utmt=1; _pk_id.100001.8cb4=41799262efd0b923.1467804804.35.1491576361.1491567557.; _pk_ses.100001.8cb4=*; __utma=30149280.325764598.1467804810.1491566154.1491576346.34; __utmb=30149280.3.10.1491576346; __utmc=30149280; __utmz=30149280.1491469694.24.15.utmcsr=baidu|utmccn=(organic)|utmcmd=organic; __utmv=30149280.12683; dbcl2="126831173:APSgA3NPab8"'
-        headers={'User_Agent':'Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.36','Cookie':cookies}
-        s=requests.Session()
-        response=s.get(url,headers=headers)
-        requests.adapters.DEFAULT_RETRIES=5
-        return response
+    def get_source(self, url):
+        try:
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()  # 检查请求是否成功
+            return response
+        except requests.exceptions.RequestException as e:
+            print(f"请求失败: {e}")
+            return None
 
     def get_main(self):
-        mains=[]
-        print u'\n',u'正在解析页面...'
-        for i in range(1020,2001,20):
-            response=self.get_source(url='https://www.douban.com/j/search?q=张国荣+&start='+str(i)+'&cat=1015')
-            main=json.loads(response.text)['items']
-            mains.append(main)
-        print u'\n', u'解析页面成功！'
+        mains = []
+        print(u'\n', u'正在解析页面...')
+
+        for i in range(0, 2001, 20):  # 从0开始
+            print(f"正在获取第 {i // 20 + 1} 页...")
+            url = f'https://www.douban.com/j/search?q=张国荣&start={i}&cat=1015'
+            response = self.get_source(url)
+
+            if response is None:
+                print(f"第 {i // 20 + 1} 页获取失败，跳过")
+                continue
+
+            try:
+                data = json.loads(response.text)
+                main = data.get('items', [])
+                if main:
+                    mains.append(main)
+                else:
+                    print(f"第 {i // 20 + 1} 页无数据，可能已到末尾")
+                    break
+            except json.JSONDecodeError:
+                print(f"第 {i // 20 + 1} 页JSON解析失败")
+                continue
+
+            time.sleep(1)  # 增加延迟避免被封
+
+        print(u'\n', u'解析页面完成！')
         return mains
 
     def get_link(self):
-        n=1
-        links=[]
-        mains=self.get_main()
-        print u'正在获取链接...'
+        n = 1
+        links = []
+        mains = self.get_main()
+        print(u'正在获取链接...')
+
         for main in mains:
-            try:
-                for j in itertools.count(0):
-                    soup=BeautifulSoup(main[j],'lxml').find('h3')
-                    pattern=re.compile(r'<a href=.*?sid:(.*?)>(.*?)</a>', re.S)
-                    items=re.findall(pattern, str(soup))
-                    for item in items:
-                        id=item[0][0:-3].strip()
-                        link='https://www.douban.com/note/'+str(id)+'/'
-                        print link
-                        links.append(link)
-                        time.sleep(0.2)
-                        n+=1
-            except IndexError:
-                continue
-        print u'\n', u'成功将所有链接存入list!',u'\n',u'一共',n-1,u'项'
+            for j in range(len(main)):
+                try:
+                    soup = BeautifulSoup(main[j], 'html.parser')
+                    h3_tag = soup.find('h3')
+                    if h3_tag:
+                        a_tag = h3_tag.find('a')
+                        if a_tag and 'href' in a_tag.attrs:
+                            href = a_tag['href']
+                            # 从href中提取note id
+                            note_id_match = re.search(r'note/(\d+)/', href)
+                            if note_id_match:
+                                note_id = note_id_match.group(1)
+                                link = f'https://www.douban.com/note/{note_id}/'
+                                print(f"{n}. {link}")
+                                links.append(link)
+                                n += 1
+                except Exception as e:
+                    print(f"解析链接时出错: {e}")
+                    continue
+
+        print(u'\n', u'成功将所有链接存入list!', u'\n', u'一共', len(links), u'项')
         return links
 
     def get_detail(self):
-        links=self.get_link()
-        container=[]
-        print u'\n',u'正在获取详细信息...'
-        n=1
-        for link in links:
-            html=self.get_source(link).text
-            data=[]
-            patternNum=re.compile(r'class="fav-num"',re.S)
-            Num=re.search(patternNum,html)
-            if Num:
-                pattern=re.compile(r'<h1>(.*?)</h1>.*?<a href=.*?class="note-author">(.*?)</a>.*?<span class="pub-date">(.*?)</span>.*?<div class="note" id="link-report">(.*?)</div>.*?<span class="fav-num".*?>(.*?)</span>',re.S)
-                items=re.findall(pattern,html)
-                for item in items:
-                    data.append(item[0])
-                    data.append(link)
-                    data.append(item[1])
-                    data.append(item[2])
-                    data.append(item[4])
-                    data.append(self.tool.replace(item[3]))
-            else:
-                pattern=re.compile(r'<h1>(.*?)</h1>.*?<a href=.*?class="note-author">(.*?)</a>.*?<span class="pub-date">(.*?)</span>.*?<div class="note" id="link-report">(.*?)</div>',re.S)
-                items=re.findall(pattern, html)
-                for item in items:
-                    data.append(item[0])
-                    data.append(link)
-                    data.append(item[1])
-                    data.append(item[2])
-                    data.append('0')
-                    data.append(self.tool.replace(item[3]))
-            container.append(data)
-            print u'第', n, u'项结束'
-            time.sleep(0.5)
-            n+=1
-        print u'\n',u'成功将所有信息写入list!'
+        links = self.get_link()
+        container = []
+        print(u'\n', u'正在获取详细信息...')
+
+        for i, link in enumerate(links, 1):
+            print(f"正在处理第 {i}/{len(links)} 项: {link}")
+            response = self.get_source(link)
+
+            if response is None:
+                print(f"第 {i} 项获取失败，跳过")
+                continue
+
+            html = response.text
+            data = []
+
+            try:
+                soup = BeautifulSoup(html, 'html.parser')
+
+                # 获取标题
+                title_tag = soup.find('h1')
+                title = title_tag.get_text().strip() if title_tag else "无标题"
+
+                # 获取作者
+                author_tag = soup.find('a', class_='note-author')
+                author = author_tag.get_text().strip() if author_tag else "未知作者"
+
+                # 获取发布时间
+                date_tag = soup.find('span', class_='pub-date')
+                pub_date = date_tag.get_text().strip() if date_tag else "未知时间"
+
+                # 获取喜欢数量
+                fav_tag = soup.find('span', class_='fav-num')
+                fav_num = fav_tag.get_text().strip() if fav_tag else "0"
+
+                # 获取内容
+                content_tag = soup.find('div', class_='note')
+                content = content_tag.get_text().strip() if content_tag else "无内容"
+                content = self.tool.replace(content)
+
+                data = [title, link, author, pub_date, fav_num, content]
+                container.append(data)
+
+            except Exception as e:
+                print(f"解析第 {i} 项详情时出错: {e}")
+                continue
+
+            time.sleep(2)  # 增加延迟
+
+        print(u'\n', u'成功获取所有信息！')
         return container
 
     def save_detail(self):
-        book=xlwt.Workbook()
-        sheet=book.add_sheet('sheet1',cell_overwrite_ok=True)
-        heads=[u'标题',u'链接',u'作者',u'发布时间',u'喜欢']
-        ii=0
-        for head in heads:
-            sheet.write(0,ii,head)
-            ii+=1
+        container = self.get_detail()
 
-        container=self.get_detail()
-        f=open(r'F:\Desktop\DouBan2.txt','w')
-        i=1
-        for list in container:
-            f.writelines(list[5].encode('utf-8'))
-            list.remove(list[5])
-            j=0
-            for data in list:
-                sheet.write(i,j,data)
-                j+=1
-            i+=1
-        f.close()
-        print u'\n\n',u'录入txt成功！'
-        book.save('DouBan2.xls')
-        print u'\n\n',u'录入Excel成功!'
+        if not container:
+            print("没有获取到数据，无法保存")
+            return
 
-spider=Spider()
-spider.save_detail()
+        # 保存到Excel
+        book = xlwt.Workbook(encoding='utf-8')
+        sheet = book.add_sheet('豆瓣日记', cell_overwrite_ok=True)
+        heads = [u'标题', u'链接', u'作者', u'发布时间', u'喜欢数量', u'内容']
+
+        # 写入表头
+        for i, head in enumerate(heads):
+            sheet.write(0, i, head)
+
+        # 写入数据
+        for i, item in enumerate(container, 1):
+            for j, data in enumerate(item):
+                try:
+                    sheet.write(i, j, data)
+                except:
+                    sheet.write(i, j, str(data))
+
+        # 保存文件
+        excel_filename = 'DouBan_张国荣日记.xls'
+        book.save(excel_filename)
+        print(f'\nExcel文件已保存: {excel_filename}')
+
+        # 保存到TXT
+        txt_filename = 'DouBan_张国荣日记.txt'
+        with open(txt_filename, 'w', encoding='utf-8') as f:
+            for item in container:
+                # 只保存内容到txt
+                f.write(item[5] + '\n' + '=' * 50 + '\n')
+        print(f'TXT文件已保存: {txt_filename}')
+
+
+if __name__ == "__main__":
+    spider = Spider()
+    spider.save_detail()
