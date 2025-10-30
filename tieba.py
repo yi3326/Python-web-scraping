@@ -162,6 +162,6 @@ class Spider():
 Num=int(raw_input(u'您好，输入帖子号：'))
 spider=Spider()
 spider.getAllPage(Num)
-
+##好的ddd
 
 
