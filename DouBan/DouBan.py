@@ -130,3 +130,4 @@ class Spider():
 
 spider=Spider()
 spider.save_detail()
+#优化代码
