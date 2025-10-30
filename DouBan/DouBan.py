@@ -1,192 +1,156 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-__date__ = '2017.04.06'
+"""
+豆瓣日记关键词提取工具
+优化版本：增加了错误处理、配置化、更好的代码结构
+"""
+import jieba.analyse
+import os
+import sys
+from typing import List, Tuple
+
+__date__ = '2024.01.07'
 __author__ = 'WYY'
 
-import requests
-import json
-import re
-from bs4 import BeautifulSoup
-import itertools
-import time
-import xlwt
-import os
 
+class KeywordExtractor:
+    def __init__(self, stop_words_path: str = None):
+        """
+        初始化关键词提取器
 
-class Tool():
-    def replace(self, x):
-        x = re.sub(re.compile('<br>|</br>|&nbsp;|<p>|</p>|<td>|</td>|<tr>|</tr>|</a>|<table>|</table>'), "", x)
-        x = re.sub(re.compile('<div.*?>|<img.*?>|<a.*?>|<td.*?>'), "", x)
-        return x.strip()
+        Args:
+            stop_words_path: 停用词文件路径
+        """
+        self.stop_words_path = stop_words_path
+        self._setup_jieba()
 
-
-class Spider():
-    def __init__(self):
-        self.tool = Tool()
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
-
-    def get_source(self, url):
+    def _setup_jieba(self):
+        """设置结巴分词"""
         try:
-            response = self.session.get(url, timeout=10)
-            response.raise_for_status()  # 检查请求是否成功
-            return response
-        except requests.exceptions.RequestException as e:
-            print(f"请求失败: {e}")
-            return None
+            if self.stop_words_path and os.path.exists(self.stop_words_path):
+                jieba.analyse.set_stop_words(self.stop_words_path)
+                print(f"已加载停用词文件: {self.stop_words_path}")
+            else:
+                print("未找到停用词文件，将使用默认设置")
+        except Exception as e:
+            print(f"加载停用词文件失败: {e}")
 
-    def get_main(self):
-        mains = []
-        print(u'\n', u'正在解析页面...')
+    def read_file(self, file_path: str) -> str:
+        """
+        读取文件内容
 
-        for i in range(0, 2001, 20):  # 从0开始
-            print(f"正在获取第 {i // 20 + 1} 页...")
-            url = f'https://www.douban.com/j/search?q=张国荣&start={i}&cat=1015'
-            response = self.get_source(url)
+        Args:
+            file_path: 文件路径
 
-            if response is None:
-                print(f"第 {i // 20 + 1} 页获取失败，跳过")
-                continue
+        Returns:
+            文件内容字符串
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            print(f"成功读取文件: {file_path}, 字符数: {len(content)}")
+            return content
+        except FileNotFoundError:
+            print(f"错误: 文件不存在 - {file_path}")
+            sys.exit(1)
+        except UnicodeDecodeError:
+            print(f"错误: 文件编码问题，请确保文件为UTF-8编码 - {file_path}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"读取文件时发生错误: {e}")
+            sys.exit(1)
 
+    def extract_keywords(self, content: str, top_k: int = 150,
+                         with_weight: bool = True) -> List[Tuple[str, float]]:
+        """
+        提取关键词
+
+        Args:
+            content: 文本内容
+            top_k: 返回关键词数量
+            with_weight: 是否返回权重
+
+        Returns:
+            关键词列表
+        """
+        try:
+            tags = jieba.analyse.extract_tags(
+                content,
+                topK=top_k,
+                withWeight=with_weight
+            )
+            return tags
+        except Exception as e:
+            print(f"提取关键词时发生错误: {e}")
+            return []
+
+    def save_results(self, tags: List[Tuple[str, float]],
+                     output_path: str = None):
+        """
+        保存结果到文件
+
+        Args:
+            tags: 关键词列表
+            output_path: 输出文件路径
+        """
+        if output_path:
             try:
-                data = json.loads(response.text)
-                main = data.get('items', [])
-                if main:
-                    mains.append(main)
-                else:
-                    print(f"第 {i // 20 + 1} 页无数据，可能已到末尾")
-                    break
-            except json.JSONDecodeError:
-                print(f"第 {i // 20 + 1} 页JSON解析失败")
-                continue
-
-            time.sleep(1)  # 增加延迟避免被封
-
-        print(u'\n', u'解析页面完成！')
-        return mains
-
-    def get_link(self):
-        n = 1
-        links = []
-        mains = self.get_main()
-        print(u'正在获取链接...')
-
-        for main in mains:
-            for j in range(len(main)):
-                try:
-                    soup = BeautifulSoup(main[j], 'html.parser')
-                    h3_tag = soup.find('h3')
-                    if h3_tag:
-                        a_tag = h3_tag.find('a')
-                        if a_tag and 'href' in a_tag.attrs:
-                            href = a_tag['href']
-                            # 从href中提取note id
-                            note_id_match = re.search(r'note/(\d+)/', href)
-                            if note_id_match:
-                                note_id = note_id_match.group(1)
-                                link = f'https://www.douban.com/note/{note_id}/'
-                                print(f"{n}. {link}")
-                                links.append(link)
-                                n += 1
-                except Exception as e:
-                    print(f"解析链接时出错: {e}")
-                    continue
-
-        print(u'\n', u'成功将所有链接存入list!', u'\n', u'一共', len(links), u'项')
-        return links
-
-    def get_detail(self):
-        links = self.get_link()
-        container = []
-        print(u'\n', u'正在获取详细信息...')
-
-        for i, link in enumerate(links, 1):
-            print(f"正在处理第 {i}/{len(links)} 项: {link}")
-            response = self.get_source(link)
-
-            if response is None:
-                print(f"第 {i} 项获取失败，跳过")
-                continue
-
-            html = response.text
-            data = []
-
-            try:
-                soup = BeautifulSoup(html, 'html.parser')
-
-                # 获取标题
-                title_tag = soup.find('h1')
-                title = title_tag.get_text().strip() if title_tag else "无标题"
-
-                # 获取作者
-                author_tag = soup.find('a', class_='note-author')
-                author = author_tag.get_text().strip() if author_tag else "未知作者"
-
-                # 获取发布时间
-                date_tag = soup.find('span', class_='pub-date')
-                pub_date = date_tag.get_text().strip() if date_tag else "未知时间"
-
-                # 获取喜欢数量
-                fav_tag = soup.find('span', class_='fav-num')
-                fav_num = fav_tag.get_text().strip() if fav_tag else "0"
-
-                # 获取内容
-                content_tag = soup.find('div', class_='note')
-                content = content_tag.get_text().strip() if content_tag else "无内容"
-                content = self.tool.replace(content)
-
-                data = [title, link, author, pub_date, fav_num, content]
-                container.append(data)
-
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write("关键词\t权重\n")
+                    f.write("-" * 30 + "\n")
+                    for word, weight in tags:
+                        f.write(f"{word}\t{int(weight * 10000)}\n")
+                print(f"结果已保存到: {output_path}")
             except Exception as e:
-                print(f"解析第 {i} 项详情时出错: {e}")
-                continue
+                print(f"保存结果时发生错误: {e}")
 
-            time.sleep(2)  # 增加延迟
+    def print_results(self, tags: List[Tuple[str, float]]):
+        """打印结果到控制台"""
+        print("\n关键词分析结果:")
+        print("-" * 40)
+        print("关键词\t\t权重")
+        print("-" * 40)
 
-        print(u'\n', u'成功获取所有信息！')
-        return container
+        for i, (word, weight) in enumerate(tags, 1):
+            # 根据关键词长度调整制表符
+            tab_count = 3 if len(word) >= 6 else 4 if len(word) >= 3 else 5
+            tabs = '\t' * tab_count
+            print(f"{i:2d}. {word}{tabs}{int(weight * 10000)}")
 
-    def save_detail(self):
-        container = self.get_detail()
+        print(f"\n总计提取出 {len(tags)} 个关键词")
 
-        if not container:
-            print("没有获取到数据，无法保存")
-            return
 
-        # 保存到Excel
-        book = xlwt.Workbook(encoding='utf-8')
-        sheet = book.add_sheet('豆瓣日记', cell_overwrite_ok=True)
-        heads = [u'标题', u'链接', u'作者', u'发布时间', u'喜欢数量', u'内容']
+def main():
+    """主函数"""
+    # 配置文件路径
+    INPUT_FILE = r'F:\Desktop\DouBan.txt'
+    STOP_WORDS_FILE = r'F:\Desktop\TingYong.txt'
+    OUTPUT_FILE = r'F:\Desktop\关键词分析结果.txt'
 
-        # 写入表头
-        for i, head in enumerate(heads):
-            sheet.write(0, i, head)
+    # 创建提取器实例
+    extractor = KeywordExtractor(STOP_WORDS_FILE)
 
-        # 写入数据
-        for i, item in enumerate(container, 1):
-            for j, data in enumerate(item):
-                try:
-                    sheet.write(i, j, data)
-                except:
-                    sheet.write(i, j, str(data))
+    # 读取文件
+    content = extractor.read_file(INPUT_FILE)
 
-        # 保存文件
-        excel_filename = 'DouBan_张国荣日记.xls'
-        book.save(excel_filename)
-        print(f'\nExcel文件已保存: {excel_filename}')
+    if not content:
+        print("文件内容为空，无法进行分析")
+        return
 
-        # 保存到TXT
-        txt_filename = 'DouBan_张国荣日记.txt'
-        with open(txt_filename, 'w', encoding='utf-8') as f:
-            for item in container:
-                # 只保存内容到txt
-                f.write(item[5] + '\n' + '=' * 50 + '\n')
-        print(f'TXT文件已保存: {txt_filename}')
+    # 提取关键词
+    print("正在分析关键词...")
+    tags = extractor.extract_keywords(content, top_k=150, with_weight=True)
+
+    if not tags:
+        print("未能提取到关键词")
+        return
+
+    # 输出结果
+    extractor.print_results(tags)
+
+    # 保存结果
+    extractor.save_results(tags, OUTPUT_FILE)
 
 
 if __name__ == "__main__":
-    spider = Spider()
-    spider.save_detail()
+    main()
