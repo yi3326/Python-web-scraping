@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if edit %}编辑任务{% else %}新建任务{% endif %} - 定时任务管理系统
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">
+                    {% if edit %}
+                        <i class="fas fa-edit"></i> 编辑任务
+                    {% else %}
+                        <i class="fas fa-plus"></i> 新建任务
+                    {% endif %}
+                </h4>
+            </div>
+            <div class="card-body">
+                <form id="task-form">
+                    <input type="hidden" id="task-id" value="{{ task.id if task else '' }}">
+                    
+                    <!-- 基本信息 -->
+                    <div class="mb-3">
+                        <h5>基本信息</h5>
+                        <hr>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="task-name" class="form-label">任务名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="task-name" required
+                               value="{{ task.config.name if task else template.name }}">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="task-description" class="form-label">任务描述</label>
+                        <textarea class="form-control" id="task-description" rows="3">{{ task.config.get('description', '') if task else template.description }}</textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="task-type" class="form-label">任务类型 <span class="text-danger">*</span></label>
+                        <select class="form-select" id="task-type" required>
+                            <option value="script" {% if (task and task.config.type == 'script') or (not task and template.type == 'script') %}selected{% endif %}>
+                                Python脚本
+                            </option>
+                            <option value="scrapy" {% if (task and task.config.type == 'scrapy') or (not task and template.type == 'scrapy') %}selected{% endif %}>
+                                Scrapy爬虫
+                            </option>
+                            <option value="flask" {% if (task and task.config.type == 'flask') or (not task and template.type == 'flask') %}selected{% endif %}>
+                                Flask应用
+                            </option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="task-enabled" 
+                               {% if (task and task.config.enabled) or (not task and template.enabled) %}checked{% endif %}>
+                        <label class="form-check-label" for="task-enabled">启用任务</label>
+                    </div>
+                    
+                    <!-- 任务配置 -->
+                    <div class="mb-3">
+                        <h5>任务配置</h5>
+                        <hr>
+                    </div>
+                    
+                    <!-- Python脚本配置 -->
+                    <div id="script-config" class="task-config">
+                        <div class="mb-3">
+                            <label for="script-path" class="form-label">脚本路径 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="script-path" required
+                                   value="{{ task.config.get('script_path', '') if task else template.script_path }}">
+                            <div class="form-text">相对于项目根目录的路径，如: QSBK.py</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Scrapy爬虫配置 -->
+                    <div id="scrapy-config" class="task-config" style="display: none;">
+                        <div class="mb-3">
+                            <label for="project-path" class="form-label">项目路径 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="project-path"
+                                   value="{{ task.config.get('project_path', '') if task else template.project_path }}">
+                            <div class="form-text">相对于项目根目录的路径，如: XiaoHua</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="spider-name" class="form-label">爬虫名称 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="spider-name" required
+                                   value="{{ task.config.get('spider_name', '') if task else template.spider_name }}">
+                        </div>
+                    </div>
+                    
+                    <!-- Flask应用配置 -->
+                    <div id="flask-config" class="task-config" style="display: none;">
+                        <div class="mb-3">
+                            <label for="app-path" class="form-label">应用路径 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="app-path"
+                                   value="{{ task.config.get('app_path', '') if task else template.app_path }}">
+                            <div class="form-text">相对于项目根目录的路径，如: server.py</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="function-name" class="form-label">函数名称 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="function-name" required
+                                   value="{{ task.config.get('function_name', '') if task else template.function_name }}">
+                        </div>
+                    </div>
+                    
+                    <!-- 触发器配置 -->
+                    <div class="mb-3">
+                        <h5>触发器配置</h5>
+                        <hr>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="trigger-type" class="form-label">触发器类型 <span class="text-danger">*</span></label>
+                        <select class="form-select" id="trigger-type" required>
+                            <option value="cron" {% if (task and task.config.trigger_type == 'cron') or (not task and template.trigger_type == 'cron') %}selected{% endif %}>
+                                Cron表达式
+                            </option>
+                            <option value="interval" {% if task and task.config.trigger_type == 'interval' %}selected{% endif %}>
+                                间隔执行
+                            </option>
+                            <option value="date" {% if task and task.config.trigger_type == 'date' %}selected{% endif %}>
+                                指定日期
+                            </option>
+                        </select>
+                    </div>
+                    
+                    <!-- Cron表达式配置 -->
+                    <div id="cron-config" class="trigger-config">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="cron-minute" class="form-label">分钟</label>
+                                <input type="text" class="form-control" id="cron-minute" placeholder="0-59"
+                                       value="{{ task.config.get('minute', '0') if task else template.minute }}">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="cron-hour" class="form-label">小时</label>
+                                <input type="text" class="form-control" id="cron-hour" placeholder="0-23"
+                                       value="{{ task.config.get('hour', '0') if task else template.hour }}">
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="cron-day" class="form-label">日</label>
+                                <input type="text" class="form-control" id="cron-day" placeholder="1-31"
+                                       value="{{ task.config.get('day', '*') if task else '*' }}">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="cron-month" class="form-label">月</label>
+                                <input type="text" class="form-control" id="cron-month" placeholder="1-12"
+                                       value="{{ task.config.get('month', '*') if task else '*' }}">
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="cron-day-of-week" class="form-label">星期</label>
+                            <select class="form-select" id="cron-day-of-week">
+                                <option value="*" {% if (task and task.config.get('day_of_week') == '*') or (not task) %}selected{% endif %}>每天</option>
+                                <option value="0" {% if task and task.config.get('day_of_week') == '0' %}selected{% endif %}>星期一</option>
+                                <option value="1" {% if task and task.config.get('day_of_week') == '1' %}selected{% endif %}>星期二</option>
+                                <option value="2" {% if task and task.config.get('day_of_week') == '2' %}selected{% endif %}>星期三</option>
+                                <option value="3" {% if task and task.config.get('day_of_week') == '3' %}selected{% endif %}>星期四</option>
+                                <option value="4" {% if task and task.config.get('day_of_week') == '4' %}selected{% endif %}>星期五</option>
+                                <option value="5" {% if task and task.config.get('day_of_week') == '5' %}selected{% endif %}>星期六</option>
+                                <option value="6" {% if task and task.config.get('day_of_week') == '6' %}selected{% endif %}>星期日</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- 间隔执行配置 -->
+                    <div id="interval-config" class="trigger-config" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label for="interval-seconds" class="form-label">秒</label>
+                                <input type="number" class="form-control" id="interval-seconds" min="0"
+                                       value="{{ task.config.get('seconds', 0) if task else 0 }}">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="interval-minutes" class="form-label">分钟</label>
+                                <input type="number" class="form-control" id="interval-minutes" min="0"
+                                       value="{{ task.config.get('minutes', 0) if task else 0 }}">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="interval-hours" class="form-label">小时</label>
+                                <input type="number" class="form-control" id="interval-hours" min="0"
+                                       value="{{ task.config.get('hours', 0) if task else 0 }}">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 指定日期配置 -->
+                    <div id="date-config" class="trigger-config" style="display: none;">
+                        <div class="mb-3">
+                            <label for="date-run-date" class="form-label">执行日期 <span class="text-danger">*</span></label>
+                            <input type="datetime-local" class="form-control" id="date-run-date"
+                                   value="{{ task.config.get('run_date', '') if task else '' }}">
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> 返回
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 
+                            {% if edit %}更新任务{% else %}创建任务{% endif %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        // 任务类型切换
+        $('#task-type').change(function() {
+            const taskType = $(this).val();
+            $('.task-config').hide();
+            $(`#${taskType}-config`).show();
+        });
+        
+        // 触发器类型切换
+        $('#trigger-type').change(function() {
+            const triggerType = $(this).val();
+            $('.trigger-config').hide();
+            $(`#${triggerType}-config`).show();
+        });
+        
+        // 初始化显示
+        $('#task-type').trigger('change');
+        $('#trigger-type').trigger('change');
+        
+        // 表单提交
+        $('#task-form').submit(function(e) {
+            e.preventDefault();
+            
+            const taskId = $('#task-id').val();
+            const taskType = $('#task-type').val();
+            const triggerType = $('#trigger-type').val();
+            
+            // 构建任务配置
+            const taskConfig = {
+                name: $('#task-name').val(),
+                description: $('#task-description').val(),
+                type: taskType,
+                enabled: $('#task-enabled').is(':checked'),
+                trigger_type: triggerType
+            };
+            
+            // 根据任务类型添加特定配置
+            if (taskType === 'script') {
+                taskConfig.script_path = $('#script-path').val();
+            } else if (taskType === 'scrapy') {
+                taskConfig.project_path = $('#project-path').val();
+                taskConfig.spider_name = $('#spider-name').val();
+            } else if (taskType === 'flask') {
+                taskConfig.app_path = $('#app-path').val();
+                taskConfig.function_name = $('#function-name').val();
+            }
+            
+            // 根据触发器类型添加特定配置
+            if (triggerType === 'cron') {
+                taskConfig.minute = $('#cron-minute').val() || '0';
+                taskConfig.hour = $('#cron-hour').val() || '0';
+                taskConfig.day = $('#cron-day').val() || '*';
+                taskConfig.month = $('#cron-month').val() || '*';
+                taskConfig.day_of_week = $('#cron-day-of-week').val() || '*';
+            } else if (triggerType === 'interval') {
+                taskConfig.seconds = parseInt($('#interval-seconds').val()) || 0;
+                taskConfig.minutes = parseInt($('#interval-minutes').val()) || 0;
+                taskConfig.hours = parseInt($('#interval-hours').val()) || 0;
+            } else if (triggerType === 'date') {
+                taskConfig.run_date = $('#date-run-date').val();
+            }
+            
+            // 发送请求
+            const url = taskId ? `/api/tasks/${taskId}` : '/api/tasks';
+            const method = taskId ? 'PUT' : 'POST';
+            const data = taskId ? taskConfig : { id: $('#task-name').val().replace(/\s+/g, '_'), config: taskConfig };
+            
+            $.ajax({
+                url: url,
+                method: method,
+                contentType: 'application/json',
+                data: JSON.stringify(data),
+                success: function(response) {
+                    showAlert(response.message, 'success');
+                    setTimeout(function() {
+                        window.location.href = '{{ url_for("index") }}';
+                    }, 1500);
+                },
+                error: function(xhr) {
+                    const error = xhr.responseJSON ? xhr.responseJSON.error : '保存失败';
+                    const details = xhr.responseJSON && xhr.responseJSON.details ? 
+                                    '<br>' + xhr.responseJSON.details.join('<br>') : '';
+                    showAlert(error + details, 'danger');
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

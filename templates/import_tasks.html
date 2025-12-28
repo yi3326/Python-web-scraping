@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% block title %}
+    导入任务 - 定时任务管理系统
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">
+                    <i class="fas fa-file-import"></i> 导入任务
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="mb-4">
+                    <p class="text-muted">从JSON文件导入任务配置。文件应包含任务列表，每个任务包含id和config字段。</p>
+                </div>
+                
+                <div class="mb-4">
+                    <label for="import-file" class="form-label">选择文件 <span class="text-danger">*</span></label>
+                    <input type="file" class="form-control" id="import-file" accept=".json" required>
+                    <div class="form-text">请选择JSON格式的任务配置文件</div>
+                </div>
+                
+                <div class="mb-4">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="overwrite-existing" checked>
+                        <label class="form-check-label" for="overwrite-existing">
+                            覆盖已存在的任务
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <button type="button" class="btn btn-primary" id="import-btn">
+                        <i class="fas fa-upload"></i> 导入任务
+                    </button>
+                    <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> 返回
+                    </a>
+                </div>
+                
+                <div id="import-result" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">导入结果</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="import-summary"></div>
+                            <div id="import-details"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 文件内容预览模态框 -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="previewModalLabel">文件内容预览</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="file-content" class="bg-light p-3" style="max-height: 400px; overflow-y: auto;"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="confirm-import-btn">确认导入</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        let fileContent = null;
+        
+        // 文件选择变化
+        $('#import-file').change(function() {
+            const file = this.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    fileContent = JSON.parse(e.target.result);
+                    $('#file-content').text(JSON.stringify(fileContent, null, 2));
+                } catch (error) {
+                    showAlert('文件格式错误，请确保是有效的JSON文件', 'danger');
+                    fileContent = null;
+                }
+            };
+            reader.readAsText(file);
+        });
+        
+        // 导入按钮点击
+        $('#import-btn').click(function() {
+            const file = $('#import-file')[0].files[0];
+            if (!file) {
+                showAlert('请选择要导入的文件', 'warning');
+                return;
+            }
+            
+            if (!fileContent) {
+                showAlert('文件内容无效', 'danger');
+                return;
+            }
+            
+            // 显示预览
+            $('#previewModal').modal('show');
+        });
+        
+        // 确认导入
+        $('#confirm-import-btn').click(function() {
+            const overwrite = $('#overwrite-existing').is(':checked');
+            
+            const formData = new FormData();
+            formData.append('file', $('#import-file')[0].files[0]);
+            formData.append('overwrite_existing', overwrite);
+            
+            $.ajax({
+                url: '/api/tasks/import',
+                method: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(data) {
+                    $('#previewModal').modal('hide');
+                    showImportResult(data);
+                },
+                error: function(xhr) {
+                    $('#previewModal').modal('hide');
+                    const error = xhr.responseJSON ? xhr.responseJSON.error : '导入失败';
+                    showAlert(error, 'danger');
+                }
+            });
+        });
+        
+        // 显示导入结果
+        function showImportResult(data) {
+            const summaryHtml = `
+                <div class="alert alert-info">
+                    <h6>导入摘要</h6>
+                    <p>共尝试导入 ${data.imported + data.skipped + data.failed} 个任务</p>
+                    <ul class="mb-0">
+                        <li class="text-success">成功导入: ${data.imported} 个</li>
+                        <li class="text-warning">跳过: ${data.skipped} 个</li>
+                        <li class="text-danger">失败: ${data.failed} 个</li>
+                    </ul>
+                </div>
+            `;
+            
+            let detailsHtml = '';
+            if (data.details && data.details.length > 0) {
+                detailsHtml = '<h6>详细信息</h6>';
+                detailsHtml += '<div class="list-group">';
+                
+                data.details.forEach(function(item) {
+                    let statusClass = 'text-success';
+                    let statusIcon = 'fa-check-circle';
+                    
+                    if (item.status === 'skipped') {
+                        statusClass = 'text-warning';
+                        statusIcon = 'fa-exclamation-triangle';
+                    } else if (item.status === 'failed') {
+                        statusClass = 'text-danger';
+                        statusIcon = 'fa-times-circle';
+                    }
+                    
+                    detailsHtml += `
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <strong>${item.name}</strong>
+                                    <div class="small text-muted">${item.id}</div>
+                                </div>
+                                <div class="${statusClass}">
+                                    <i class="fas ${statusIcon}"></i>
+                                    ${item.status === 'imported' ? '已导入' : 
+                                      item.status === 'skipped' ? '已跳过' : '导入失败'}
+                                </div>
+                            </div>
+                            ${item.reason ? `<div class="small ${statusClass} mt-1">${item.reason}</div>` : ''}
+                        </div>
+                    `;
+                });
+                
+                detailsHtml += '</div>';
+            }
+            
+            $('#import-summary').html(summaryHtml);
+            $('#import-details').html(detailsHtml);
+            $('#import-result').show();
+            
+            // 滚动到结果区域
+            $('html, body').animate({
+                scrollTop: $('#import-result').offset().top
+            }, 500);
+        }
+    });
+</script>
+{% endblock %}

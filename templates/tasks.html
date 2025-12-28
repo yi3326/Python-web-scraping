@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}任务列表 - 定时任务管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="fas fa-list"></i> 任务列表</h1>
+    <div>
+        <a href="{{ url_for('import_tasks') }}" class="btn btn-outline-primary me-2">
+            <i class="fas fa-file-import"></i> 导入任务
+        </a>
+        <a href="{{ url_for('export_tasks') }}" class="btn btn-outline-success">
+            <i class="fas fa-file-export"></i> 导出任务
+        </a>
+    </div>
+</div>
+
+<div class="row" id="tasks-container">
+    {% for task_id, task in tasks.items() %}
+    <div class="col-md-6 col-lg-4 mb-4">
+        <div class="card task-card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">{{ task.config.name }}</h5>
+                <span class="badge bg-{{ 'success' if task.config.enabled else 'secondary' }}">
+                    {{ '启用' if task.config.enabled else '禁用' }}
+                </span>
+            </div>
+            <div class="card-body">
+                <p class="card-text">{{ task.config.get('description', '无描述') }}</p>
+                
+                <div class="mb-2">
+                    <strong>类型:</strong> 
+                    <span class="badge bg-info">
+                        {% if task.config.type == 'script' %}
+                            <i class="fas fa-file-code"></i> Python脚本
+                        {% elif task.config.type == 'scrapy' %}
+                            <i class="fas fa-spider"></i> Scrapy爬虫
+                        {% elif task.config.type == 'flask' %}
+                            <i class="fas fa-flask"></i> Flask应用
+                        {% else %}
+                            {{ task.config.type }}
+                        {% endif %}
+                    </span>
+                </div>
+                
+                <div class="mb-2">
+                    <strong>触发器:</strong> 
+                    {% if task.config.trigger_type == 'cron' %}
+                        <span class="badge bg-primary">Cron</span>
+                        <small class="text-muted">
+                            {% if task.config.hour %}{{ task.config.hour }}:{% endif %}
+                            {{ task.config.get('minute', '0') }}
+                            {% if task.config.day_of_week %} (周{{ task.config.day_of_week }}){% endif %}
+                        </small>
+                    {% elif task.config.trigger_type == 'interval' %}
+                        <span class="badge bg-primary">间隔</span>
+                        <small class="text-muted">
+                            {% if task.config.hours %}{{ task.config.hours }}小时{% endif %}
+                            {% if task.config.minutes %}{{ task.config.minutes }}分钟{% endif %}
+                            {% if task.config.seconds %}{{ task.config.seconds }}秒{% endif %}
+                        </small>
+                    {% elif task.config.trigger_type == 'date' %}
+                        <span class="badge bg-primary">指定日期</span>
+                        <small class="text-muted">{{ task.config.run_date }}</small>
+                    {% endif %}
+                </div>
+                
+                <div class="mb-2">
+                    <strong>下次执行:</strong> 
+                    <span class="text-muted">
+                        {{ task.next_run or '未调度' }}
+                    </span>
+                </div>
+                
+                {% if task.result %}
+                <div class="mb-2">
+                    <strong>上次执行:</strong> 
+                    <span class="status-{{ task.result.status }}">
+                        {% if task.result.status == 'success' %}
+                            <i class="fas fa-check-circle"></i> 成功
+                        {% elif task.result.status == 'failed' %}
+                            <i class="fas fa-times-circle"></i> 失败
+                        {% else %}
+                            <i class="fas fa-clock"></i> 等待中
+                        {% endif %}
+                    </span>
+                    <small class="text-muted">({{ task.result.last_run }})</small>
+                </div>
+                {% endif %}
+            </div>
+            <div class="card-footer d-flex justify-content-between">
+                <div>
+                    <button class="btn btn-sm btn-outline-primary run-task-btn" 
+                            data-task-id="{{ task_id }}" 
+                            {% if not task.config.enabled %}disabled{% endif %}>
+                        <i class="fas fa-play"></i> 立即执行
+                    </button>
+                </div>
+                <div>
+                    <a href="{{ url_for('edit_task', task_id=task_id) }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="fas fa-edit"></i>
+                    </a>
+                    <button class="btn btn-sm btn-outline-danger delete-task-btn" data-task-id="{{ task_id }}">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if not tasks %}
+<div class="text-center py-5">
+    <i class="fas fa-tasks fa-3x text-muted mb-3"></i>
+    <h3 class="text-muted">暂无任务</h3>
+    <p class="text-muted">点击上方"新建任务"按钮创建您的第一个定时任务</p>
+    <a href="{{ url_for('new_task', type='script') }}" class="btn btn-primary">
+        <i class="fas fa-plus"></i> 新建任务
+    </a>
+</div>
+{% endif %}
+
+<!-- 删除确认模态框 -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">确认删除</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>确定要删除任务 "<span id="delete-task-name"></span>" 吗？</p>
+                <p class="text-danger">此操作不可恢复！</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete">删除</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        let deleteTaskId = null;
+        
+        // 删除任务按钮事件
+        $('.delete-task-btn').click(function() {
+            deleteTaskId = $(this).data('task-id');
+            const taskName = $(this).closest('.card').find('.card-header h5').text();
+            $('#delete-task-name').text(taskName);
+            $('#deleteModal').modal('show');
+        });
+        
+        // 确认删除按钮事件
+        $('#confirm-delete').click(function() {
+            if (deleteTaskId) {
+                $.ajax({
+                    url: `/api/tasks/${deleteTaskId}`,
+                    method: 'DELETE',
+                    success: function(response) {
+                        showAlert(response.message, 'success');
+                        location.reload();
+                    },
+                    error: function(xhr) {
+                        const error = xhr.responseJSON ? xhr.responseJSON.error : '删除失败';
+                        showAlert(error, 'danger');
+                    }
+                });
+            }
+        });
+        
+        // 立即执行任务按钮事件
+        $('.run-task-btn').click(function() {
+            const taskId = $(this).data('task-id');
+            
+            $(this).prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> 执行中...');
+            
+            $.ajax({
+                url: `/api/tasks/${taskId}/run`,
+                method: 'POST',
+                success: function(response) {
+                    showAlert(response.message, 'success');
+                    // 延迟刷新页面，以便看到执行结果
+                    setTimeout(function() {
+                        location.reload();
+                    }, 2000);
+                },
+                error: function(xhr) {
+                    const error = xhr.responseJSON ? xhr.responseJSON.error : '执行失败';
+                    showAlert(error, 'danger');
+                    $('.run-task-btn').prop('disabled', false).html('<i class="fas fa-play"></i> 立即执行');
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

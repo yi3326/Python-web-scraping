@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {{ task.config.name }} - 任务详情 - 定时任务管理系统
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">
+                    <i class="fas fa-info-circle"></i> 任务详情
+                </h4>
+                <div>
+                    <a href="{{ url_for('edit_task', task_id=task.id) }}" class="btn btn-sm btn-outline-primary">
+                        <i class="fas fa-edit"></i> 编辑
+                    </a>
+                    <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteModal">
+                        <i class="fas fa-trash"></i> 删除
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless">
+                    <tbody>
+                        <tr>
+                            <th width="150">任务名称</th>
+                            <td>{{ task.config.name }}</td>
+                        </tr>
+                        <tr>
+                            <th>任务描述</th>
+                            <td>{{ task.config.get('description', '无') }}</td>
+                        </tr>
+                        <tr>
+                            <th>任务类型</th>
+                            <td>
+                                {% if task.config.type == 'script' %}
+                                    <span class="badge bg-primary">Python脚本</span>
+                                {% elif task.config.type == 'scrapy' %}
+                                    <span class="badge bg-success">Scrapy爬虫</span>
+                                {% elif task.config.type == 'flask' %}
+                                    <span class="badge bg-info">Flask应用</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>任务状态</th>
+                            <td>
+                                {% if task.config.enabled %}
+                                    <span class="badge bg-success">已启用</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">已禁用</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>触发器类型</th>
+                            <td>
+                                {% if task.config.trigger_type == 'cron' %}
+                                    <span class="badge bg-primary">Cron表达式</span>
+                                {% elif task.config.trigger_type == 'interval' %}
+                                    <span class="badge bg-success">间隔执行</span>
+                                {% elif task.config.trigger_type == 'date' %}
+                                    <span class="badge bg-info">指定日期</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>触发器配置</th>
+                            <td>
+                                {% if task.config.trigger_type == 'cron' %}
+                                    {{ task.config.minute }} {{ task.config.hour }} {{ task.config.day }} {{ task.config.month }} {{ task.config.day_of_week }}
+                                {% elif task.config.trigger_type == 'interval' %}
+                                    {% set total_seconds = task.config.get('seconds', 0) + task.config.get('minutes', 0) * 60 + task.config.get('hours', 0) * 3600 %}
+                                    {% if total_seconds > 0 %}
+                                        每
+                                        {% if task.config.get('hours', 0) > 0 %}{{ task.config.hours }} 小时{% endif %}
+                                        {% if task.config.get('minutes', 0) > 0 %}{{ task.config.minutes }} 分钟{% endif %}
+                                        {% if task.config.get('seconds', 0) > 0 %}{{ task.config.seconds }} 秒{% endif %}
+                                        执行一次
+                                    {% else %}
+                                        未配置
+                                    {% endif %}
+                                {% elif task.config.trigger_type == 'date' %}
+                                    {{ task.config.run_date }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>任务配置</th>
+                            <td>
+                                {% if task.config.type == 'script' %}
+                                    <div><strong>脚本路径:</strong> {{ task.config.script_path }}</div>
+                                {% elif task.config.type == 'scrapy' %}
+                                    <div><strong>项目路径:</strong> {{ task.config.project_path }}</div>
+                                    <div><strong>爬虫名称:</strong> {{ task.config.spider_name }}</div>
+                                {% elif task.config.type == 'flask' %}
+                                    <div><strong>应用路径:</strong> {{ task.config.app_path }}</div>
+                                    <div><strong>函数名称:</strong> {{ task.config.function_name }}</div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <div class="mt-4">
+                    <button type="button" class="btn btn-primary" id="run-task-btn">
+                        <i class="fas fa-play"></i> 立即执行
+                    </button>
+                    {% if task.config.enabled %}
+                        <button type="button" class="btn btn-warning" id="pause-task-btn">
+                            <i class="fas fa-pause"></i> 暂停任务
+                        </button>
+                    {% else %}
+                        <button type="button" class="btn btn-success" id="resume-task-btn">
+                            <i class="fas fa-play-circle"></i> 恢复任务
+                        </button>
+                    {% endif %}
+                    <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> 返回
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-clock"></i> 执行历史
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="execution-history">
+                    <div class="text-center text-muted">
+                        <div class="spinner-border spinner-border-sm" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                        <p class="mt-2">加载执行历史...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 删除确认模态框 -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteModalLabel">确认删除</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>确定要删除任务 <strong>{{ task.config.name }}</strong> 吗？</p>
+                <p class="text-danger">此操作不可恢复！</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete-btn">确认删除</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        // 加载执行历史
+        function loadExecutionHistory() {
+            $.get(`/api/tasks/{{ task.id }}/history`, function(data) {
+                const historyHtml = data.history.length > 0 ? 
+                    data.history.map(item => `
+                        <div class="card mb-2">
+                            <div class="card-body p-2">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <small class="text-muted">${item.run_time}</small>
+                                        <div class="${item.status === 'success' ? 'text-success' : 'text-danger'}">
+                                            ${item.status === 'success' ? '执行成功' : '执行失败'}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        ${item.status === 'success' ? 
+                                            '<i class="fas fa-check-circle text-success"></i>' : 
+                                            '<i class="fas fa-times-circle text-danger"></i>'}
+                                    </div>
+                                </div>
+                                ${item.error ? `<div class="text-danger small mt-1">${item.error}</div>` : ''}
+                            </div>
+                        </div>
+                    `).join('') : 
+                    '<div class="text-center text-muted">暂无执行历史</div>';
+                
+                $('#execution-history').html(historyHtml);
+            }).fail(function() {
+                $('#execution-history').html('<div class="text-center text-danger">加载执行历史失败</div>');
+            });
+        }
+        
+        loadExecutionHistory();
+        
+        // 立即执行任务
+        $('#run-task-btn').click(function() {
+            const btn = $(this);
+            btn.prop('disabled', true);
+            btn.html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 执行中...');
+            
+            $.post(`/api/tasks/{{ task.id }}/run`, function(data) {
+                showAlert(data.message, 'success');
+                setTimeout(function() {
+                    loadExecutionHistory();
+                }, 1000);
+            }).fail(function(xhr) {
+                const error = xhr.responseJSON ? xhr.responseJSON.error : '执行失败';
+                showAlert(error, 'danger');
+            }).always(function() {
+                btn.prop('disabled', false);
+                btn.html('<i class="fas fa-play"></i> 立即执行');
+            });
+        });
+        
+        // 暂停任务
+        $('#pause-task-btn').click(function() {
+            $.post(`/api/tasks/{{ task.id }}/pause`, function(data) {
+                showAlert(data.message, 'success');
+                setTimeout(function() {
+                    window.location.reload();
+                }, 1500);
+            }).fail(function(xhr) {
+                const error = xhr.responseJSON ? xhr.responseJSON.error : '暂停失败';
+                showAlert(error, 'danger');
+            });
+        });
+        
+        // 恢复任务
+        $('#resume-task-btn').click(function() {
+            $.post(`/api/tasks/{{ task.id }}/resume`, function(data) {
+                showAlert(data.message, 'success');
+                setTimeout(function() {
+                    window.location.reload();
+                }, 1500);
+            }).fail(function(xhr) {
+                const error = xhr.responseJSON ? xhr.responseJSON.error : '恢复失败';
+                showAlert(error, 'danger');
+            });
+        });
+        
+        // 删除任务
+        $('#confirm-delete-btn').click(function() {
+            $.ajax({
+                url: `/api/tasks/{{ task.id }}`,
+                method: 'DELETE',
+                success: function(data) {
+                    showAlert(data.message, 'success');
+                    setTimeout(function() {
+                        window.location.href = '{{ url_for("index") }}';
+                    }, 1500);
+                },
+                error: function(xhr) {
+                    const error = xhr.responseJSON ? xhr.responseJSON.error : '删除失败';
+                    showAlert(error, 'danger');
+                    $('#deleteModal').modal('hide');
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}

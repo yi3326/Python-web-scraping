@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+
+{% block title %}
+    导出任务 - 定时任务管理系统
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">
+                    <i class="fas fa-file-export"></i> 导出任务
+                </h4>
+            </div>
+            <div class="card-body">
+                <div class="mb-4">
+                    <p class="text-muted">选择要导出的任务，系统将生成JSON格式的配置文件。</p>
+                </div>
+                
+                <div class="mb-4">
+                    <h5>选择任务</h5>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="select-all-tasks" checked>
+                        <label class="form-check-label" for="select-all-tasks">
+                            全选/取消全选
+                        </label>
+                    </div>
+                    
+                    <div id="task-list" class="border rounded p-3" style="max-height: 300px; overflow-y: auto;">
+                        <div class="text-center">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                            <p class="mt-2">加载任务列表...</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <button type="button" class="btn btn-primary" id="export-btn" disabled>
+                        <i class="fas fa-download"></i> 导出选中的任务
+                    </button>
+                    <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> 返回
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 导出预览模态框 -->
+<div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportModalLabel">导出预览</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="filename" class="form-label">文件名</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="filename" value="tasks_export.json">
+                        <span class="input-group-text">.json</span>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="include-disabled" checked>
+                        <label class="form-check-label" for="include-disabled">
+                            包含已禁用的任务
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">导出内容预览</label>
+                    <pre id="export-content" class="bg-light p-3" style="max-height: 400px; overflow-y: auto;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="download-btn">
+                    <i class="fas fa-download"></i> 下载文件
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        let tasks = [];
+        let exportData = null;
+        
+        // 加载任务列表
+        function loadTasks() {
+            $.get('/api/tasks', function(data) {
+                tasks = data.tasks;
+                renderTaskList();
+            }).fail(function() {
+                $('#task-list').html('<div class="text-center text-danger">加载任务列表失败</div>');
+            });
+        }
+        
+        // 渲染任务列表
+        function renderTaskList() {
+            if (tasks.length === 0) {
+                $('#task-list').html('<div class="text-center text-muted">暂无任务</div>');
+                return;
+            }
+            
+            const taskListHtml = tasks.map(task => {
+                const statusBadge = task.config.enabled ? 
+                    '<span class="badge bg-success">已启用</span>' : 
+                    '<span class="badge bg-secondary">已禁用</span>';
+                
+                const typeBadge = task.config.type === 'script' ? 
+                    '<span class="badge bg-primary">Python脚本</span>' : 
+                    task.config.type === 'scrapy' ? 
+                    '<span class="badge bg-success">Scrapy爬虫</span>' : 
+                    '<span class="badge bg-info">Flask应用</span>';
+                
+                return `
+                    <div class="form-check mb-2">
+                        <input class="form-check-input task-checkbox" type="checkbox" value="${task.id}" id="task-${task.id}" checked>
+                        <label class="form-check-label" for="task-${task.id}">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>${task.config.name}</strong>
+                                    <div class="small text-muted">${task.id}</div>
+                                </div>
+                                <div>
+                                    ${statusBadge} ${typeBadge}
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                `;
+            }).join('');
+            
+            $('#task-list').html(taskListHtml);
+            updateExportButton();
+        }
+        
+        // 更新导出按钮状态
+        function updateExportButton() {
+            const selectedCount = $('.task-checkbox:checked').length;
+            $('#export-btn').prop('disabled', selectedCount === 0);
+            $('#export-btn').html(`<i class="fas fa-download"></i> 导出选中的任务 (${selectedCount})`);
+        }
+        
+        // 全选/取消全选
+        $('#select-all-tasks').change(function() {
+            const isChecked = $(this).is(':checked');
+            $('.task-checkbox').prop('checked', isChecked);
+            updateExportButton();
+        });
+        
+        // 任务复选框变化
+        $(document).on('change', '.task-checkbox', function() {
+            updateExportButton();
+            // 更新全选状态
+            const totalTasks = $('.task-checkbox').length;
+            const checkedTasks = $('.task-checkbox:checked').length;
+            $('#select-all-tasks').prop('checked', totalTasks === checkedTasks);
+        });
+        
+        // 导出按钮点击
+        $('#export-btn').click(function() {
+            const selectedIds = $('.task-checkbox:checked').map(function() {
+                return $(this).val();
+            }).get();
+            
+            if (selectedIds.length === 0) {
+                showAlert('请选择要导出的任务', 'warning');
+                return;
+            }
+            
+            const includeDisabled = $('#include-disabled').is(':checked');
+            const selectedTasks = tasks.filter(task => 
+                selectedIds.includes(task.id) && (includeDisabled || task.config.enabled)
+            );
+            
+            exportData = {
+                export_time: new Date().toISOString(),
+                total_tasks: selectedTasks.length,
+                tasks: selectedTasks
+            };
+            
+            $('#export-content').text(JSON.stringify(exportData, null, 2));
+            $('#exportModal').modal('show');
+        });
+        
+        // 下载按钮点击
+        $('#download-btn').click(function() {
+            const filename = $('#filename').val() || 'tasks_export.json';
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showAlert('任务配置已导出', 'success');
+            $('#exportModal').modal('hide');
+        });
+        
+        // 包含已禁用任务复选框变化
+        $('#include-disabled').change(function() {
+            const selectedIds = $('.task-checkbox:checked').map(function() {
+                return $(this).val();
+            }).get();
+            
+            if (selectedIds.length === 0) return;
+            
+            const includeDisabled = $(this).is(':checked');
+            const selectedTasks = tasks.filter(task => 
+                selectedIds.includes(task.id) && (includeDisabled || task.config.enabled)
+            );
+            
+            exportData = {
+                export_time: new Date().toISOString(),
+                total_tasks: selectedTasks.length,
+                tasks: selectedTasks
+            };
+            
+            $('#export-content').text(JSON.stringify(exportData, null, 2));
+        });
+        
+        // 初始化
+        loadTasks();
+    });
+</script>
+{% endblock %}
